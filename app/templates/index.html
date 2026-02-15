@@ -1,0 +1,309 @@
+<!-- archivo: app/templates/index.html -->
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Isotherm Augmentor – Análisis Profesional de Isotermas</title>
+    <meta name="description" content="Herramienta profesional para interpolación y análisis de isotermas">
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+
+<body>
+    <header class="topbar">
+        <div class="brand">
+            <div class="logo">IA</div>
+            <div class="brandText">
+                <div class="title">Isotherm Augmentor</div>
+                <div class="subtitle">Interpolación · Suavizado · Regresión · Exportación</div>
+            </div>
+        </div>
+        <div class="topbarRight">
+            <span class="badge" id="datasetInfo">Sin datos cargados</span>
+        </div>
+    </header>
+
+    <div class="shell">
+        <aside class="sidebar">
+            <!-- Sección de entrada de datos con pestañas -->
+            <section class="card compact">
+                <div class="cardTitle">Entrada de Datos</div>
+
+                <!-- Sistema de pestañas -->
+                <div class="dataTabs">
+                    <button class="tabBtn active" data-tab="file" type="button">
+                        Archivo
+                    </button>
+                    <button class="tabBtn" data-tab="manual" type="button">
+                        Manual
+                    </button>
+                </div>
+
+                <!-- Contenido: Cargar Archivo -->
+                <div class="tabContent active" id="tabFile">
+                    <div class="field compact">
+                        <label>CSV o Excel</label>
+                        <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" />
+                        <div class="help">
+                            Columnas: <code>P [bar]</code> y <code>mmol/g co2</code>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contenido: Entrada Manual -->
+                <div class="tabContent" id="tabManual">
+                    <div class="rowBetween" style="margin-bottom: 8px;">
+                        <div class="help" style="margin: 0; font-size: 11px;">Mín. 3 puntos</div>
+                        <button class="btn small" id="addRowBtn" type="button">+ Agregar</button>
+                    </div>
+
+                    <div class="tableWrap compact">
+                        <table class="tbl compact" id="pointsTable">
+                            <thead>
+                                <tr>
+                                    <th>P</th>
+                                    <th>Q</th>
+                                    <th style="width: 40px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Parámetros de procesamiento -->
+            <section class="card compact">
+                <div class="cardTitle">Parámetros</div>
+
+                <div class="field compact">
+                    <label title="Número de puntos generados en la rejilla de interpolación">
+                        Puntos generados
+                        <span class="tooltip-icon"
+                            title="Cantidad de puntos que se generarán para cada método. Mayor número = curvas más suaves">ⓘ</span>
+                    </label>
+                    <input id="nPoints" type="number" min="3" step="1" value="200"
+                        title="Número de puntos para las curvas interpoladas (recomendado: 100-300)" />
+                </div>
+
+                <div class="field compact">
+                    <label title="Grado del polinomio para regresión polinomial">
+                        Grado polinómico
+                        <span class="tooltip-icon"
+                            title="Grado del polinomio (1=lineal, 2=cuadrático, 3=cúbico). Mayor grado = más ajuste a los datos">ⓘ</span>
+                    </label>
+                    <input id="polyDegree" type="number" min="1" max="10" step="1" value="3"
+                        title="Grado del polinomio de regresión (recomendado: 2-4)" />
+                </div>
+
+                <div class="field compact">
+                    <label title="Factor de suavizado para spline">
+                        Smoothing
+                        <span class="tooltip-icon"
+                            title="Factor de suavizado. 0 = sin suavizado (pasa por todos los puntos). Mayor valor = curva más suave">ⓘ</span>
+                    </label>
+                    <input id="smoothingS" type="number" min="0" step="0.1" value="0.0"
+                        title="Factor de suavizado (0 = sin suavizado, 0.1-1.0 = suavizado moderado)" />
+                </div>
+
+                <button class="btn primary fullwidth" id="runBtn" type="button">Ejecutar Análisis</button>
+
+                <div class="status" id="status"></div>
+            </section>
+
+            <!-- Documentación de Métodos -->
+            <section class="card compact">
+                <div class="cardTitle">Métodos Numéricos</div>
+
+                <!-- Pestañas de métodos -->
+                <div class="methodTabs">
+                    <button class="methodTabBtn active" data-method="pchip">PCHIP</button>
+                    <button class="methodTabBtn" data-method="smoothing">Smoothing</button>
+                    <button class="methodTabBtn" data-method="cubic">Cubic Spline</button>
+                    <button class="methodTabBtn" data-method="linear">Linear</button>
+                    <button class="methodTabBtn" data-method="poly">Polynomial</button>
+                </div>
+
+                <!-- Contenido de documentación -->
+                <div class="methodDocs">
+                    <!-- PCHIP -->
+                    <div class="methodDoc active" id="doc-pchip">
+                        <h4>PCHIP (Piecewise Cubic Hermite Interpolating Polynomial)</h4>
+                        <p class="methodDesc">
+                            Interpolación cúbica por segmentos que preserva la forma y monotonía de los datos.
+                            Evita oscilaciones espurias entre puntos garantizando que la curva no sobrepase
+                            los valores locales máximos o mínimos.
+                        </p>
+                        <div class="methodEq">
+                            <strong>Forma del Polinomio:</strong>
+                            $$P_i(x) = y_i + m_i(x - x_i) + \frac{2h_i m_i + h_i m_{i+1} - 3\Delta_i}{h_i^2}(x - x_i)^2
+                            + \frac{-h_i m_i - h_i m_{i+1} + 2\Delta_i}{h_i^3}(x - x_i)^3$$
+                        </div>
+                        <p class="methodNote">
+                            donde \(h_i = x_{i+1} - x_i\), \(\Delta_i = \frac{y_{i+1} - y_i}{h_i}\),
+                            y \(m_i\) son las derivadas que preservan la monotonía.
+                        </p>
+                        <div class="methodProps">
+                            <span class="prop"><strong>Continuidad:</strong> C¹</span>
+                            <span class="prop"><strong>Ventajas:</strong> Preserva forma, sin oscilaciones</span>
+                            <span class="prop"><strong>Uso:</strong> Datos con tendencias monótonas</span>
+                        </div>
+                    </div>
+
+                    <!-- Smoothing Spline -->
+                    <div class="methodDoc" id="doc-smoothing">
+                        <h4>Smoothing Spline (Spline Suavizado)</h4>
+                        <p class="methodDesc">
+                            Spline cúbico que balancea el ajuste a los datos con la suavidad de la curva.
+                            Minimiza una función objetivo que considera tanto el error de ajuste como
+                            la curvatura de la función resultante.
+                        </p>
+                        <div class="methodEq">
+                            <strong>Minimización:</strong>
+                            $$\min_{f} \left\{ \sum_{i=1}^{n} (y_i - f(x_i))^2 + \lambda \int (f''(x))^2 \, dx
+                            \right\}$$
+                        </div>
+                        <p class="methodNote">
+                            El parámetro de suavizado \(\lambda \geq 0\) controla el balance:
+                            \(\lambda = 0\) interpola todos los puntos, \(\lambda \to \infty\) produce una recta de
+                            mínimos cuadrados.
+                        </p>
+                        <div class="methodProps">
+                            <span class="prop"><strong>Continuidad:</strong> C²</span>
+                            <span class="prop"><strong>Ventajas:</strong> Reduce ruido, ajustable</span>
+                            <span class="prop"><strong>Parámetro:</strong> s = factor de suavizado</span>
+                        </div>
+                    </div>
+
+                    <!-- Cubic Spline -->
+                    <div class="methodDoc" id="doc-cubic">
+                        <h4>Cubic Spline (Spline Cúbico Natural)</h4>
+                        <p class="methodDesc">
+                            Interpolación por segmentos usando polinomios cúbicos que pasan exactamente
+                            por todos los puntos de datos. Garantiza continuidad de primera y segunda
+                            derivada en todo el dominio, produciendo curvas suaves.
+                        </p>
+                        <div class="methodEq">
+                            <strong>Segmento i-ésimo:</strong>
+                            $$S_i(x) = a_i + b_i(x - x_i) + c_i(x - x_i)^2 + d_i(x - x_i)^3$$
+                        </div>
+                        <p class="methodNote">
+                            Con condiciones de frontera naturales: \(S''(x_0) = S''(x_n) = 0\).
+                            Los coeficientes se determinan resolviendo un sistema tridiagonal.
+                        </p>
+                        <div class="methodProps">
+                            <span class="prop"><strong>Continuidad:</strong> C²</span>
+                            <span class="prop"><strong>Ventajas:</strong> Muy suave, bien condicionado</span>
+                            <span class="prop"><strong>Uso:</strong> Interpolación precisa general</span>
+                        </div>
+                    </div>
+
+                    <!-- Linear -->
+                    <div class="methodDoc" id="doc-linear">
+                        <h4>Linear Interpolation (Interpolación Lineal)</h4>
+                        <p class="methodDesc">
+                            Método de interpolación más simple que conecta puntos consecutivos con
+                            segmentos de línea recta. Fácil de calcular y garantiza que la función
+                            permanece acotada por los valores de los datos.
+                        </p>
+                        <div class="methodEq">
+                            <strong>Entre puntos \((x_i, y_i)\) y \((x_{i+1}, y_{i+1})\):</strong>
+                            $$f(x) = y_i + \frac{y_{i+1} - y_i}{x_{i+1} - x_i}(x - x_i)$$
+                        </div>
+                        <p class="methodNote">
+                            Equivalente a interpolación polinomial de grado 1 en cada segmento.
+                            No diferenciable en los puntos de datos.
+                        </p>
+                        <div class="methodProps">
+                            <span class="prop"><strong>Continuidad:</strong> C⁰</span>
+                            <span class="prop"><strong>Ventajas:</strong> Simple, rápido, estable</span>
+                            <span class="prop"><strong>Limitaciones:</strong> No suave en los nodos</span>
+                        </div>
+                    </div>
+
+                    <!-- Polynomial -->
+                    <div class="methodDoc" id="doc-poly">
+                        <h4>Polynomial Regression (Regresión Polinomial)</h4>
+                        <p class="methodDesc">
+                            Ajuste de un único polinomio de grado \(n\) a todos los datos mediante
+                            mínimos cuadrados. A diferencia de los métodos de interpolación, no
+                            necesariamente pasa por todos los puntos, sino que minimiza el error global.
+                        </p>
+                        <div class="methodEq">
+                            <strong>Polinomio de grado n:</strong>
+                            $$P_n(x) = a_0 + a_1 x + a_2 x^2 + \cdots + a_n x^n$$
+                        </div>
+                        <p class="methodNote">
+                            Los coeficientes \(\{a_0, a_1, \ldots, a_n\}\) se obtienen minimizando:
+                            \(\sum_{i=1}^{N} (y_i - P_n(x_i))^2\).
+                            Grados altos pueden causar oscilaciones (fenómeno de Runge).
+                        </p>
+                        <div class="methodProps">
+                            <span class="prop"><strong>Grado:</strong> Ajustable (1-10)</span>
+                            <span class="prop"><strong>Ventajas:</strong> Suave, captura tendencias globales</span>
+                            <span class="prop"><strong>Precaución:</strong> Grados muy altos pueden sobreajustar</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </aside>
+
+        <main class="main">
+            <!-- Métodos activos (arriba del gráfico) -->
+            <section class="card compact">
+                <div class="rowBetween">
+                    <div class="cardTitle" style="margin: 0;">Métodos</div>
+                    <div class="help" style="margin: 0;">Marca los métodos a visualizar</div>
+                </div>
+                <div id="methodToggles" class="toggles horizontal"></div>
+            </section>
+
+            <!-- Gráfico principal -->
+            <section class="card">
+                <div id="plotMain" class="plot"></div>
+            </section>
+
+            <!-- Exportación (debajo del gráfico) -->
+            <section class="card compact">
+                <div class="rowBetween">
+                    <div class="cardTitle" style="margin: 0;">Exportar</div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <button class="btn small" id="exportCsvBtn" type="button" disabled>CSV</button>
+                        <button class="btn small" id="exportXlsxBtn" type="button" disabled>Excel</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tabla de datos -->
+            <section class="card compact">
+                <div class="rowBetween">
+                    <div class="cardTitle" style="margin: 0;">Tabla</div>
+                    <select id="tableMethod" style="width: 160px;"></select>
+                </div>
+                <div class="tableWrap medium">
+                    <table class="tbl compact" id="generatedTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>P [bar]</th>
+                                <th>mmol/g co2</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <footer class="footer">
+        © 2026 Isotherm Augmentor · FastAPI + SciPy + Plotly
+    </footer>
+
+    <script src="/static/app.js"></script>
+</body>
+
+</html>
